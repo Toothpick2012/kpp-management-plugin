@@ -42,6 +42,7 @@ import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
 
+import jenkins.model.Jenkins;
 import jenkins.tasks.SimpleBuildWrapper;
 import org.kohsuke.stapler.DataBoundConstructor;
 
@@ -55,6 +56,7 @@ public class KPPProvisioningProfilesBuildWrapper extends SimpleBuildWrapper impl
     private boolean deleteProfilesAfterBuild;
     private boolean overwriteExistingProfiles;
     private transient List<FilePath> copiedProfiles;
+    private static final long serialVersionUID = 1;
     
     /**
      * Constructor
@@ -111,8 +113,12 @@ public class KPPProvisioningProfilesBuildWrapper extends SimpleBuildWrapper impl
      */
     private void copyProvisioningProfiles(FilePath projectWorkspace, String nodeStr) throws IOException, InterruptedException {
         
-        Hudson hudson = Hudson.getInstance();
-        FilePath hudsonRoot = hudson.getRootPath();
+        Jenkins jenkins = Jenkins.getInstance();
+        if (jenkins == null) {
+            throw new IOException("Jenkins instance not available");
+        }
+
+        FilePath hudsonRoot = jenkins.getRootPath();
         VirtualChannel channel;
         String toProvisioningProfilesDirectoryPath = null;
 
@@ -121,12 +127,25 @@ public class KPPProvisioningProfilesBuildWrapper extends SimpleBuildWrapper impl
         if (buildOn.equals("master")) {
             // build on master
             channel = projectWorkspace.getChannel();
-            toProvisioningProfilesDirectoryPath = KPPProvisioningProfilesProvider.getInstance().getProvisioningProfilesPath();
+
+            KPPProvisioningProfilesProvider instance = KPPProvisioningProfilesProvider.getInstance();
+            if (instance == null) {
+                throw new IOException("Cannot get instance of KPPProvisioningProfilesProvider");
+            }
+            toProvisioningProfilesDirectoryPath = instance.getProvisioningProfilesPath();
             isMaster = true;
         } else {
             // build on slave
-            Node node = hudson.getNode(nodeStr);;
+            Node node = jenkins.getNode(nodeStr);
+            if (node == null) {
+                throw new IOException(String.format("Cannot find node with name: %s", nodeStr));
+            }
+
             channel = node.getChannel();
+            if (channel == null) {
+                throw new IOException(String.format("Cannot get channel for node with name: %s", nodeStr));
+            }
+
             KPPNodeProperty nodeProperty = KPPNodeProperty.getCurrentNodeProperties(node);
             if (nodeProperty != null) {
                 toProvisioningProfilesDirectoryPath = KPPNodeProperty.getCurrentNodeProperties(node).getProvisioningProfilesPath();
@@ -144,7 +163,7 @@ public class KPPProvisioningProfilesBuildWrapper extends SimpleBuildWrapper impl
             throw new IOException(message);
         }
         
-        // remove file seperator char at the end of the path
+        // remove file separator char at the end of the path
         if (toProvisioningProfilesDirectoryPath.endsWith(File.separator)) {
             toProvisioningProfilesDirectoryPath = toProvisioningProfilesDirectoryPath.substring(0, toProvisioningProfilesDirectoryPath.length()-1);
         }
